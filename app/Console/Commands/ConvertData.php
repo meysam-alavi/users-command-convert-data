@@ -51,7 +51,6 @@ class ConvertData extends Command
 
         $resume = $this->option('resume');
         $logFilePath = self::$usersDataDir . '/convertor-meta/log-error.txt';
-        $offset = 1;
         if ($resume) {
             $offset = (int)Redis::command('get', ['offset']) ?? 1;
             $splFileObject->seek($offset);
@@ -71,11 +70,12 @@ class ConvertData extends Command
                         'national_code' => $userInfo[3]
                     );
 
+                    $offset = (int)Redis::command('get', ['offset']) ?? 1;
                     try {
                         User::query()->create($record);
+                        $this->info("registered: users-list.txt line: $offset => national_code {$userInfo[3]}");
                     } catch (\Exception $e) {
-                        $this->error($e->getMessage());
-                        $offset = (int)Redis::command('get', ['offset']);
+                        $this->error("not registered: users-list.txt line: $offset => national_code {$userInfo[3]}");
                         $logData .= 'users-list.txt line: '.$offset.' | '.$lineData.'|'.$e->getMessage().PHP_EOL;
                     }
 
