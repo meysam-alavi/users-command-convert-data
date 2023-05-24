@@ -5,10 +5,12 @@ namespace App\Console\Commands;
 use App\Models\User;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Storage;
-use mysql_xdevapi\Exception;
 use SplFileObject;
 use Illuminate\Support\Facades\Redis;
 
+/**
+ * ConvertData Command Class
+ */
 class ConvertData extends Command
 {
     /**
@@ -48,51 +50,42 @@ class ConvertData extends Command
         }
 
         $resume = $this->option('resume');
-        $offsetFilePath = self::$usersDataDir . '/convertor-meta/offset.txt';
         $logFilePath = self::$usersDataDir . '/convertor-meta/log-error.txt';
         $offset = 1;
         if ($resume) {
-            $offset = (int)Storage::get($offsetFilePath) ?? 1;
+            $offset = (int)Redis::command('get', ['offset']) ?? 1;
             $splFileObject->seek($offset);
         }
 
         if ($splFileObject->isFile()) {
+            $logData = '';
             while (!$splFileObject->eof()) {
                 $lineData = $splFileObject->getCurrentLine();
                 $lineData = trim($lineData);
-                if(empty($lineData)) {
-                    continue;
+                if(!empty($lineData)) {
+                    $userInfo = explode("\t", $lineData);
+                    $record = array(
+                        'first_name' => $userInfo[0],
+                        'last_name' => $userInfo[1],
+                        'mobile' => $userInfo[2],
+                        'national_code' => $userInfo[3]
+                    );
+
+                    try {
+                        User::query()->create($record);
+                    } catch (\Exception $e) {
+                        $this->error($e->getMessage());
+                        $offset = (int)Redis::command('get', ['offset']);
+                        $logData .= 'users-list.txt line: '.$offset.' | '.$lineData.'|'.$e->getMessage().PHP_EOL;
+                    }
+
+                    Redis::command('incr', ['offset', 1]);
                 }
-                $userInfo = explode("\t", $lineData);
-
-                print_r($userInfo);
-
-                $record = array(
-                    'first_name' => $userInfo[0],
-                    'last_name' => $userInfo[1],
-                    'mobile' => $userInfo[2],
-                    'national_code' => $userInfo[3]
-                );
-
-                try {
-                    User::query()->create($record);
-                } catch (\Exception $e) {
-                    $this->error($e->getMessage());
-                    $logData = 'line number in users-list.txt file : '.$offset.' | '.$lineData.'|'.$e->getMessage().PHP_EOL;
-                    Storage::append($logFilePath, $logData);
-                }
-
-                if ($resume) {
-                    Storage::put($offsetFilePath, $offset);
-                }
-                $offset++;
-
-                echo $lineData;
             }
+
+            Storage::append($logFilePath, $logData);
         } else {
             $this->error('the file not exists or is\'nt a regular file');
         }
-
-
     }
 }
